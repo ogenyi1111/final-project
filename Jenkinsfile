@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         // Define environment variables
-        DOCKER_IMAGE = 'your-app-name'
+        DOCKER_IMAGE = 'final-project'
         DOCKER_TAG = "${BUILD_NUMBER}"
         // Cross-platform path separator
         PATH_SEPARATOR = "${isUnix() ? '/' : '\\'}"
@@ -131,13 +131,17 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 script {
-                    // Check if Docker is available
                     def dockerAvailable = isUnix() ? 
                         sh(script: 'which docker', returnStatus: true) == 0 :
                         bat(script: 'where docker', returnStatus: true) == 0
 
                     if (dockerAvailable) {
-                        // Build Docker image with cross-platform compatibility
+                        // Check if Dockerfile exists
+                        def dockerfileExists = fileExists 'Dockerfile'
+                        if (!dockerfileExists) {
+                            error 'Dockerfile not found. Cannot build Docker image.'
+                        }
+
                         if (isUnix()) {
                             sh "docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ."
                         } else {
@@ -153,13 +157,11 @@ pipeline {
         stage('Push Docker Image') {
             steps {
                 script {
-                    // Check if Docker is available
                     def dockerAvailable = isUnix() ? 
                         sh(script: 'which docker', returnStatus: true) == 0 :
                         bat(script: 'where docker', returnStatus: true) == 0
 
                     if (dockerAvailable) {
-                        // Push Docker image with cross-platform compatibility
                         if (isUnix()) {
                             sh """
                                 docker login your-registry.com -u ${DOCKER_USER} -p ${DOCKER_PASSWORD}
