@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         // Define environment variables
-        DOCKER_IMAGE = 'final-project'
+        DOCKER_IMAGE = 'ikenna2025/final-project'
         DOCKER_TAG = "${BUILD_NUMBER}"
         // Cross-platform path separator
         PATH_SEPARATOR = "${isUnix() ? '/' : '\\'}"
@@ -168,7 +168,7 @@ pipeline {
                         } else {
                             bat '''
                                 echo %DOCKER_PASSWORD% | docker login -u %DOCKER_USERNAME% --password-stdin
-                                docker push ${DOCKER_IMAGE}:${DOCKER_TAG}
+                                docker push ikenna2025/final-project:%BUILD_NUMBER%
                             '''
                         }
                     }
