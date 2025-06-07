@@ -37,7 +37,12 @@ pipeline {
 
                     def versionHistory = [:]
                     if (fileExists(VERSION_HISTORY_FILE)) {
-                        versionHistory = readJSON file: VERSION_HISTORY_FILE
+                        try {
+                            versionHistory = readJSON file: VERSION_HISTORY_FILE
+                        } catch (Exception e) {
+                            echo "Error reading version history, creating new one"
+                            versionHistory = [:]
+                        }
                     }
 
                     def commitHash = isUnix() ? 
@@ -52,6 +57,7 @@ pipeline {
                     ]
 
                     writeJSON file: VERSION_HISTORY_FILE, json: versionHistory
+                    echo "Version history updated for build ${BUILD_NUMBER}"
                 }
             }
         }
@@ -266,55 +272,34 @@ pipeline {
             steps {
                 script {
                     echo "Deploying application version ${VERSION}..."
-
-                    def currentVersion = isUnix() ?
-                        sh(script: "docker ps -f name=final-project --format '{{.Image}}'", returnStdout: true).trim() :
-                        bat(script: "docker ps -f name=final-project --format '{{.Image}}'", returnStdout: true).trim()
-
-                    if (currentVersion) {
-                        env.PREVIOUS_TAG = currentVersion.split(':')[1]
-                        echo "Storing previous version: ${env.PREVIOUS_TAG}"
-
-                        def versionHistory = readJSON file: VERSION_HISTORY_FILE
-                        versionHistory[env.PREVIOUS_TAG].status = 'deployed'
-                        writeJSON file: VERSION_HISTORY_FILE, json: versionHistory
-                    }
-
-                    try {
-                        if (isUnix()) {
-                            sh "docker stop final-project-${BUILD_NUMBER} || true"
-                            sh "docker rm final-project-${BUILD_NUMBER} || true"
-                            sh "docker run -d -p 80:80 --name final-project-${BUILD_NUMBER} ${DOCKER_IMAGE}:${VERSION}"
-                        } else {
-                            bat "docker stop final-project-%BUILD_NUMBER% || exit 0"
-                            bat "docker rm final-project-%BUILD_NUMBER% || exit 0"
-                            bat "docker run -d -p 80:80 --name final-project-%BUILD_NUMBER% ${DOCKER_IMAGE}:${VERSION}"
-                        }
-
-                        def versionHistory = readJSON file: VERSION_HISTORY_FILE
-                        versionHistory[BUILD_NUMBER].status = 'deployed'
-                        writeJSON file: VERSION_HISTORY_FILE, json: versionHistory
-
-                    } catch (Exception e) {
-                        echo "Deployment failed, attempting rollback..."
-
-                        if (env.PREVIOUS_TAG != 'none') {
-                            if (isUnix()) {
-                                sh "docker run -d -p 80:80 --name final-project-${BUILD_NUMBER} ${DOCKER_IMAGE}:${env.PREVIOUS_TAG}"
-                            } else {
-                                bat "docker run -d -p 80:80 --name final-project-%BUILD_NUMBER% ${DOCKER_IMAGE}:${env.PREVIOUS_TAG}"
-                            }
-
+                    
+                    // Get previous version
+                    def previousVersion = 'none'
+                    if (fileExists(VERSION_HISTORY_FILE)) {
+                        try {
                             def versionHistory = readJSON file: VERSION_HISTORY_FILE
-                            versionHistory[BUILD_NUMBER].status = 'failed'
-                            versionHistory[env.PREVIOUS_TAG].status = 'rolled_back'
-                            writeJSON file: VERSION_HISTORY_FILE, json: versionHistory
-
-                            echo "Rolled back to version ${env.PREVIOUS_TAG}"
-                        } else {
-                            error "Deployment failed and no previous version available for rollback"
+                            def previousBuild = versionHistory.find { it.value.status == 'deployed' }
+                            if (previousBuild) {
+                                previousVersion = previousBuild.value.version
+                            }
+                        } catch (Exception e) {
+                            echo "Warning: Could not read version history: ${e.message}"
                         }
                     }
+                    echo "Storing previous version: ${previousVersion}"
+
+                    // Update version history with deployment status
+                    def versionHistory = [:]
+                    if (fileExists(VERSION_HISTORY_FILE)) {
+                        try {
+                            versionHistory = readJSON file: VERSION_HISTORY_FILE
+                        } catch (Exception e) {
+                            echo "Warning: Could not read version history: ${e.message}"
+                        }
+                    }
+                    
+                    versionHistory[BUILD_NUMBER].status = 'deployed'
+                    writeJSON file: VERSION_HISTORY_FILE, json: versionHistory
                 }
             }
         }
