@@ -311,69 +311,43 @@ pipeline {
         stage('Deploy') {
             steps {
                 script {
-                    echo "Deploying application version ${VERSION} to ${env.APP_ENV} environment..."
+                    echo "Deploying application version ${VERSION} to ${DEPLOY_ENV} environment..."
                     
-                    // Initialize version history
-                    def versionHistory = [:]
-                    if (fileExists(VERSION_HISTORY_FILE)) {
-                        try {
-                            versionHistory = readJSON file: VERSION_HISTORY_FILE
-                        } catch (Exception e) {
-                            echo "Warning: Could not read version history: ${e.message}"
-                        }
+                    // Store current version for rollback
+                    def previousVersion = null
+                    if (fileExists('version_history.json')) {
+                        def versionHistory = readJSON file: 'version_history.json'
+                        previousVersion = versionHistory.currentVersion
+                        echo "Storing previous version: ${previousVersion}"
                     }
-
-                    // Get previous version
-                    def previousVersion = 'none'
-                    if (versionHistory) {
-                        def previousBuild = versionHistory.find { it.value.status == 'deployed' && it.value.environment == env.APP_ENV }
-                        if (previousBuild) {
-                            previousVersion = previousBuild.value.version
-                        }
+                    
+                    // Set environment-specific variables
+                    if (isUnix()) {
+                        sh """
+                            export COMPOSE_PROJECT_NAME=final-project-${DEPLOY_ENV}
+                            export DOCKER_IMAGE=ikenna2025/final-project
+                            export NGINX_PORT=${DEPLOY_ENV == 'development' ? '8082' : DEPLOY_ENV == 'staging' ? '8081' : '80'}
+                            export NETWORK_NAME=app-network
+                            docker-compose -f docker-compose.yml -f docker-compose.${DEPLOY_ENV}.yml up -d
+                        """
+                    } else {
+                        bat """
+                            set COMPOSE_PROJECT_NAME=final-project-${DEPLOY_ENV}
+                            set DOCKER_IMAGE=ikenna2025/final-project
+                            set NGINX_PORT=${DEPLOY_ENV == 'development' ? '8082' : DEPLOY_ENV == 'staging' ? '8081' : '80'}
+                            set NETWORK_NAME=app-network
+                            docker-compose -f docker-compose.yml -f docker-compose.${DEPLOY_ENV}.yml up -d
+                        """
                     }
-                    echo "Storing previous version: ${previousVersion}"
-
-                    // Ensure the current build entry exists
-                    if (!versionHistory[BUILD_NUMBER]) {
-                        versionHistory[BUILD_NUMBER] = [
-                            version: VERSION,
-                            timestamp: new Date().format("yyyy-MM-dd'T'HH:mm:ss'Z'"),
-                            commit: isUnix() ? 
-                                sh(script: 'git rev-parse HEAD', returnStdout: true).trim() :
-                                bat(script: 'git rev-parse HEAD', returnStdout: true).trim(),
-                            environment: env.APP_ENV,
-                            status: 'created'
-                        ]
-                    }
-
-                    // Deploy using docker-compose
-                    try {
-                        if (isUnix()) {
-                            sh """
-                                export COMPOSE_PROJECT_NAME=final-project-${env.APP_ENV}
-                                export NGINX_PORT=${env.NGINX_PORT}
-                                export NETWORK_NAME=${env.NETWORK_NAME}
-                                docker-compose -f docker-compose.yml -f docker-compose.${env.APP_ENV}.yml up -d
-                            """
-                        } else {
-                            bat """
-                                set COMPOSE_PROJECT_NAME=final-project-${env.APP_ENV}
-                                set NGINX_PORT=${env.NGINX_PORT}
-                                set NETWORK_NAME=${env.NETWORK_NAME}
-                                docker-compose -f docker-compose.yml -f docker-compose.%APP_ENV%.yml up -d
-                            """
-                        }
-
-                        // Update deployment status
-                        versionHistory[BUILD_NUMBER].status = 'deployed'
-                        writeJSON file: VERSION_HISTORY_FILE, json: versionHistory
-                        echo "Successfully deployed to ${env.APP_ENV} environment"
-                    } catch (Exception e) {
-                        echo "Deployment failed: ${e.message}"
-                        versionHistory[BUILD_NUMBER].status = 'failed'
-                        writeJSON file: VERSION_HISTORY_FILE, json: versionHistory
-                        error "Deployment failed: ${e.message}"
-                    }
+                    
+                    // Update version history
+                    def versionHistory = [
+                        currentVersion: VERSION,
+                        previousVersion: previousVersion,
+                        lastDeployed: new Date().format("yyyy-MM-dd'T'HH:mm:ss'Z'"),
+                        environment: DEPLOY_ENV
+                    ]
+                    writeJSON file: 'version_history.json', json: versionHistory
                 }
             }
         }
