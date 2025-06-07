@@ -6,7 +6,7 @@ pipeline {
         DOCKER_IMAGE = 'your-app-name'
         DOCKER_TAG = "${BUILD_NUMBER}"
         // Cross-platform path separator
-        PATH_SEPARATOR = isUnix() ? '/' : '\\'
+        PATH_SEPARATOR = "${isUnix() ? '/' : '\\'}"
         // GitHub repository URL
         GITHUB_REPO = 'https://github.com/ogenyi1111/final-project.git'
     }
