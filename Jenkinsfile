@@ -7,14 +7,19 @@ pipeline {
         DOCKER_TAG = "${BUILD_NUMBER}"
         // Cross-platform path separator
         PATH_SEPARATOR = isUnix() ? '/' : '\\'
+        // GitHub repository URL
+        GITHUB_REPO = 'https://github.com/ogenyi1111/final-project.git'
     }
 
     stages {
         stage('Checkout') {
             steps {
-                // Clean workspace and checkout code
+                // Clean workspace
                 cleanWs()
-                checkout scm
+                // Configure Git
+                git branch: 'main',
+                    url: "${GITHUB_REPO}",
+                    credentialsId: 'github-credentials'
             }
         }
 
