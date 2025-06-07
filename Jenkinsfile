@@ -49,10 +49,14 @@ pipeline {
                         versionHistory = readJSON file: VERSION_HISTORY_FILE
                     }
                     
+                    def commitHash = isUnix() ? 
+                        sh(script: 'git rev-parse HEAD', returnStdout: true).trim() :
+                        bat(script: 'git rev-parse HEAD', returnStdout: true).trim()
+                    
                     versionHistory[BUILD_NUMBER] = [
                         version: VERSION,
                         timestamp: new Date().format("yyyy-MM-dd'T'HH:mm:ss'Z'"),
-                        commit: sh(script: 'git rev-parse HEAD', returnStdout: true).trim(),
+                        commit: commitHash,
                         status: 'created'
                     ]
                     
@@ -244,21 +248,21 @@ pipeline {
                     if (fileExists('Dockerfile')) {
                         // Build with version information
                         if (isUnix()) {
-                            sh '''
+                            sh """
                                 docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} \
                                     --build-arg VERSION=${VERSION} \
                                     --build-arg BUILD_NUMBER=${BUILD_NUMBER} \
                                     --build-arg BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
                                     .
-                            '''
+                            """
                         } else {
-                            bat '''
+                            bat """
                                 docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ^
                                     --build-arg VERSION=${VERSION} ^
                                     --build-arg BUILD_NUMBER=${BUILD_NUMBER} ^
                                     --build-arg BUILD_DATE=%date:~-4%-%date:~3,2%-%date:~0,2%T%time:~0,8%Z ^
                                     .
-                            '''
+                            """
                         }
                         
                         // Tag with semantic version
@@ -288,7 +292,7 @@ pipeline {
                         } else {
                             bat '''
                                 echo %DOCKER_PASSWORD% | docker login -u %DOCKER_USERNAME% --password-stdin
-                                docker push ikenna2025/final-project:%BUILD_NUMBER%
+                                docker push ${DOCKER_IMAGE}:${DOCKER_TAG}
                             '''
                         }
                     }
@@ -302,7 +306,10 @@ pipeline {
                     echo "Deploying application version ${VERSION}..."
                     
                     // Store current version before deployment
-                    def currentVersion = bat(script: "docker ps -f name=final-project --format \"{{.Image}}\"", returnStdout: true).trim()
+                    def currentVersion = isUnix() ?
+                        sh(script: "docker ps -f name=final-project --format \"{{.Image}}\"", returnStdout: true).trim() :
+                        bat(script: "docker ps -f name=final-project --format \"{{.Image}}\"", returnStdout: true).trim()
+                    
                     if (currentVersion) {
                         env.PREVIOUS_TAG = currentVersion.split(':')[1]
                         echo "Storing previous version: ${env.PREVIOUS_TAG}"
