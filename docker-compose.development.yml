@@ -6,7 +6,7 @@ services:
     ports:
       - "${NGINX_PORT}:80"
     networks:
-      - ${NETWORK_NAME}
+      - app-network
     environment:
       - NODE_ENV=development
       - DEBUG=true
@@ -24,7 +24,7 @@ services:
     ports:
       - "9090:9090"
     networks:
-      - ${NETWORK_NAME}
+      - app-network
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus_data:/prometheus
@@ -39,7 +39,7 @@ services:
     ports:
       - "3000:3000"
     networks:
-      - ${NETWORK_NAME}
+      - app-network
     volumes:
       - grafana_data:/var/lib/grafana
     environment:
@@ -49,7 +49,7 @@ services:
       - prometheus
 
 networks:
-  ${NETWORK_NAME}:
+  app-network:
     driver: bridge
 
 volumes:
