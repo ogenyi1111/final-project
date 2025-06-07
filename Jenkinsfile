@@ -246,8 +246,8 @@ pipeline {
                     try {
                         bat "docker run -d -p 80:80 --name final-project-%BUILD_NUMBER% ikenna2025/final-project:%BUILD_NUMBER%"
                     } catch (Exception e) {
-                        echo "Port 80 is in use, trying alternative port 8080..."
-                        bat "docker run -d -p 8080:80 --name final-project-%BUILD_NUMBER% ikenna2025/final-project:%BUILD_NUMBER%"
+                        echo "Port 80 is in use, trying alternative port 8081..."
+                        bat "docker run -d -p 8081:80 --name final-project-%BUILD_NUMBER% ikenna2025/final-project:%BUILD_NUMBER%"
                     }
                     
                     // Wait for container to be healthy
