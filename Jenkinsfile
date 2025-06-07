@@ -29,11 +29,9 @@ pipeline {
                     // Detect OS and set appropriate commands
                     def isWindows = isUnix() ? false : true
                     def npmCmd = isWindows ? 'npm.cmd' : 'npm'
-                    def shellPrefix = isWindows ? 'cmd /c ' : ''
                     
                     // Store these in environment variables for use in other stages
                     env.NPM_CMD = npmCmd
-                    env.SHELL_PREFIX = shellPrefix
                 }
             }
         }
@@ -41,9 +39,13 @@ pipeline {
         stage('Build') {
             steps {
                 script {
-                    // Use cross-platform commands
-                    sh "${env.SHELL_PREFIX}${env.NPM_CMD} install"
-                    sh "${env.SHELL_PREFIX}${env.NPM_CMD} run build"
+                    if (isUnix()) {
+                        sh "${env.NPM_CMD} install"
+                        sh "${env.NPM_CMD} run build"
+                    } else {
+                        bat "${env.NPM_CMD} install"
+                        bat "${env.NPM_CMD} run build"
+                    }
                 }
             }
         }
@@ -51,8 +53,11 @@ pipeline {
         stage('Test') {
             steps {
                 script {
-                    // Run tests with cross-platform compatibility
-                    sh "${env.SHELL_PREFIX}${env.NPM_CMD} run test"
+                    if (isUnix()) {
+                        sh "${env.NPM_CMD} run test"
+                    } else {
+                        bat "${env.NPM_CMD} run test"
+                    }
                 }
             }
             post {
@@ -66,8 +71,11 @@ pipeline {
         stage('Lint') {
             steps {
                 script {
-                    // Run linting with cross-platform compatibility
-                    sh "${env.SHELL_PREFIX}${env.NPM_CMD} run lint"
+                    if (isUnix()) {
+                        sh "${env.NPM_CMD} run lint"
+                    } else {
+                        bat "${env.NPM_CMD} run lint"
+                    }
                 }
             }
         }
@@ -128,10 +136,8 @@ pipeline {
                     // Cross-platform deployment commands
                     if (isUnix()) {
                         sh 'echo "Deploying application on Unix-based system..."'
-                        // Add Unix-specific deployment commands
                     } else {
                         bat 'echo "Deploying application on Windows..."'
-                        // Add Windows-specific deployment commands
                     }
                 }
             }
