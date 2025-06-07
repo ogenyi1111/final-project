@@ -85,7 +85,7 @@ pipeline {
                             if (isUnix()) {
                                 sh '''
                                     echo "Running HTML validation..."
-                                    find . -name "*.html" -exec echo "Validating {}" \;
+                                    find . -name "*.html" -exec echo "Validating {}" \\;
                                 '''
                             } else {
                                 bat '''
@@ -103,7 +103,7 @@ pipeline {
                             if (isUnix()) {
                                 sh '''
                                     echo "Running security scan..."
-                                    find . -type f -exec echo "Scanning {}" \;
+                                    find . -type f -exec echo "Scanning {}" \\;
                                 '''
                             } else {
                                 bat '''
