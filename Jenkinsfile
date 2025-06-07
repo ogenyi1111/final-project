@@ -156,13 +156,21 @@ pipeline {
 
         stage('Push Docker Image') {
             steps {
-                script {
-                    if (isUnix()) {
-                        sh 'docker login -u $DOCKER_USERNAME -p $DOCKER_PASSWORD'
-                        sh "docker push ${DOCKER_IMAGE}:${DOCKER_TAG}"
-                    } else {
-                        bat 'docker login -u %DOCKER_USERNAME% -p %DOCKER_PASSWORD%'
-                        bat "docker push ${DOCKER_IMAGE}:${DOCKER_TAG}"
+                withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', 
+                                               usernameVariable: 'DOCKER_USERNAME', 
+                                               passwordVariable: 'DOCKER_PASSWORD')]) {
+                    script {
+                        if (isUnix()) {
+                            sh '''
+                                echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+                                docker push ${DOCKER_IMAGE}:${DOCKER_TAG}
+                            '''
+                        } else {
+                            bat '''
+                                echo %DOCKER_PASSWORD% | docker login -u %DOCKER_USERNAME% --password-stdin
+                                docker push ${DOCKER_IMAGE}:${DOCKER_TAG}
+                            '''
+                        }
                     }
                 }
             }
