@@ -248,21 +248,21 @@ pipeline {
                     if (fileExists('Dockerfile')) {
                         // Build with version information
                         if (isUnix()) {
-                            sh '''
+                            sh """
                                 docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} \
                                     --build-arg VERSION='${VERSION}' \
                                     --build-arg BUILD_NUMBER='${BUILD_NUMBER}' \
                                     --build-arg BUILD_DATE="$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
                                     .
-                            '''
+                            """
                         } else {
-                            bat '''
+                            bat """
                                 docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ^
                                     --build-arg VERSION='${VERSION}' ^
                                     --build-arg BUILD_NUMBER='${BUILD_NUMBER}' ^
                                     --build-arg BUILD_DATE="%date:~-4%-%date:~3,2%-%date:~0,2%T%time:~0,8%Z" ^
                                     .
-                            '''
+                            """
                         }
                         
                         // Tag with semantic version
