@@ -157,24 +157,12 @@ pipeline {
         stage('Push Docker Image') {
             steps {
                 script {
-                    def dockerAvailable = isUnix() ? 
-                        sh(script: 'which docker', returnStatus: true) == 0 :
-                        bat(script: 'where docker', returnStatus: true) == 0
-
-                    if (dockerAvailable) {
-                        if (isUnix()) {
-                            sh """
-                                docker login your-registry.com -u ${DOCKER_USER} -p ${DOCKER_PASSWORD}
-                                docker push ${DOCKER_IMAGE}:${DOCKER_TAG}
-                            """
-                        } else {
-                            bat """
-                                docker login your-registry.com -u %DOCKER_USER% -p %DOCKER_PASSWORD%
-                                docker push ${DOCKER_IMAGE}:${DOCKER_TAG}
-                            """
-                        }
+                    if (isUnix()) {
+                        sh 'docker login -u $DOCKER_USERNAME -p $DOCKER_PASSWORD'
+                        sh "docker push ${DOCKER_IMAGE}:${DOCKER_TAG}"
                     } else {
-                        echo "Docker not available, skipping Docker push stage"
+                        bat 'docker login -u %DOCKER_USERNAME% -p %DOCKER_PASSWORD%'
+                        bat "docker push ${DOCKER_IMAGE}:${DOCKER_TAG}"
                     }
                 }
             }
