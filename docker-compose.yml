@@ -1,12 +1,9 @@
-version: '3.8'
-
 services:
   web:
     build:
       context: .
       dockerfile: Dockerfile
     image: ikenna2025/final-project:latest
-    container_name: final-project-web
     ports:
       - "80:80"
     volumes:
@@ -26,7 +23,6 @@ services:
 
   prometheus:
     image: prom/prometheus:latest
-    container_name: final-project-prometheus
     ports:
       - "9090:9090"
     volumes:
@@ -43,7 +39,6 @@ services:
 
   grafana:
     image: grafana/grafana:latest
-    container_name: final-project-grafana
     ports:
       - "3000:3000"
     volumes:
