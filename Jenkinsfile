@@ -229,7 +229,8 @@ pipeline {
                             sh "docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:${VERSION}"
                         } else {
                             bat """
-                                set BUILD_DATE=%date:~-4%-%date:~3,2%-%date:~0,2%T%time:~0,8%Z
+                                for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value') do set datetime=%%I
+                                set BUILD_DATE=%datetime:~0,8%T%datetime:~8,6%Z
                                 docker build -t ikenna2025/final-project:${BUILD_NUMBER} --build-arg VERSION=${VERSION} --build-arg BUILD_NUMBER=${BUILD_NUMBER} --build-arg BUILD_DATE=%BUILD_DATE% .
                             """
                             bat "docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:${VERSION}"
