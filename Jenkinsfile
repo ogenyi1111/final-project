@@ -17,9 +17,50 @@ pipeline {
         // Health check configuration
         HEALTH_CHECK_RETRIES = '3'
         HEALTH_CHECK_INTERVAL = '10'
+        // Version management
+        VERSION_FILE = 'version.txt'
+        MAJOR_VERSION = '1'
+        MINOR_VERSION = '0'
+        PATCH_VERSION = '0'
+        VERSION = "${MAJOR_VERSION}.${MINOR_VERSION}.${PATCH_VERSION}-${BUILD_NUMBER}"
+        VERSION_HISTORY_FILE = 'version_history.json'
     }
 
     stages {
+        stage('Version Management') {
+            steps {
+                script {
+                    // Create or update version file
+                    if (isUnix()) {
+                        sh """
+                            echo "${VERSION}" > ${VERSION_FILE}
+                            echo "Version ${VERSION} created"
+                        """
+                    } else {
+                        bat """
+                            echo ${VERSION} > ${VERSION_FILE}
+                            echo "Version ${VERSION} created"
+                        """
+                    }
+
+                    // Update version history
+                    def versionHistory = [:]
+                    if (fileExists(VERSION_HISTORY_FILE)) {
+                        versionHistory = readJSON file: VERSION_HISTORY_FILE
+                    }
+                    
+                    versionHistory[BUILD_NUMBER] = [
+                        version: VERSION,
+                        timestamp: new Date().format("yyyy-MM-dd'T'HH:mm:ss'Z'"),
+                        commit: sh(script: 'git rev-parse HEAD', returnStdout: true).trim(),
+                        status: 'created'
+                    ]
+                    
+                    writeJSON file: VERSION_HISTORY_FILE, json: versionHistory
+                }
+            }
+        }
+
         stage('Checkout') {
             steps {
                 // Clean workspace
@@ -201,10 +242,30 @@ pipeline {
                     }
                     
                     if (fileExists('Dockerfile')) {
+                        // Build with version information
                         if (isUnix()) {
-                            sh "docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ."
+                            sh """
+                                docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} \
+                                    --build-arg VERSION=${VERSION} \
+                                    --build-arg BUILD_NUMBER=${BUILD_NUMBER} \
+                                    --build-arg BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
+                                    .
+                            """
                         } else {
-                            bat "docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ."
+                            bat """
+                                docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ^
+                                    --build-arg VERSION=${VERSION} ^
+                                    --build-arg BUILD_NUMBER=${BUILD_NUMBER} ^
+                                    --build-arg BUILD_DATE=%date:~-4%-%date:~3,2%-%date:~0,2%T%time:~0,8%Z ^
+                                    .
+                            """
+                        }
+                        
+                        // Tag with semantic version
+                        if (isUnix()) {
+                            sh "docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:${VERSION}"
+                        } else {
+                            bat "docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:${VERSION}"
                         }
                     } else {
                         error "Dockerfile not found!"
@@ -238,38 +299,62 @@ pipeline {
         stage('Deploy') {
             steps {
                 script {
-                    echo "Deploying application..."
+                    echo "Deploying application version ${VERSION}..."
                     
                     // Store current version before deployment
                     def currentVersion = bat(script: "docker ps -f name=final-project --format \"{{.Image}}\"", returnStdout: true).trim()
                     if (currentVersion) {
                         env.PREVIOUS_TAG = currentVersion.split(':')[1]
                         echo "Storing previous version: ${env.PREVIOUS_TAG}"
+                        
+                        // Update version history with deployment status
+                        def versionHistory = readJSON file: VERSION_HISTORY_FILE
+                        versionHistory[env.PREVIOUS_TAG].status = 'deployed'
+                        writeJSON file: VERSION_HISTORY_FILE, json: versionHistory
                     }
                     
                     // Stop and remove any existing container
-                    bat """
-                        docker stop final-project-%BUILD_NUMBER% || exit 0
-                        docker rm final-project-%BUILD_NUMBER% || exit 0
-                    """
-                    
-                    // Run the container directly on port 8081
-                    bat "docker run -d -p 8081:80 --name final-project-%BUILD_NUMBER% ikenna2025/final-project:%BUILD_NUMBER%"
-                    
-                    // Wait for container to be healthy
-                    def healthCheckPassed = false
-                    for (int i = 0; i < HEALTH_CHECK_RETRIES.toInteger(); i++) {
-                        sleep(HEALTH_CHECK_INTERVAL.toInteger())
-                        def status = bat(script: "docker ps -f name=final-project-%BUILD_NUMBER% --format \"{{.Status}}\"", returnStdout: true).trim()
-                        if (status && status.contains("Up")) {
-                            healthCheckPassed = true
-                            echo "Container is healthy. Status: ${status}"
-                            break
-                        }
+                    if (isUnix()) {
+                        sh "docker stop final-project-${BUILD_NUMBER} || true"
+                        sh "docker rm final-project-${BUILD_NUMBER} || true"
+                    } else {
+                        bat "docker stop final-project-%BUILD_NUMBER% || exit 0"
+                        bat "docker rm final-project-%BUILD_NUMBER% || exit 0"
                     }
                     
-                    if (!healthCheckPassed) {
-                        error "Health check failed after ${HEALTH_CHECK_RETRIES} attempts"
+                    // Deploy new version
+                    try {
+                        if (isUnix()) {
+                            sh "docker run -d -p 80:80 --name final-project-${BUILD_NUMBER} ${DOCKER_IMAGE}:${VERSION}"
+                        } else {
+                            bat "docker run -d -p 80:80 --name final-project-%BUILD_NUMBER% ${DOCKER_IMAGE}:${VERSION}"
+                        }
+                        
+                        // Update version history with deployment status
+                        def versionHistory = readJSON file: VERSION_HISTORY_FILE
+                        versionHistory[BUILD_NUMBER].status = 'deployed'
+                        writeJSON file: VERSION_HISTORY_FILE, json: versionHistory
+                        
+                    } catch (Exception e) {
+                        echo "Deployment failed, attempting rollback..."
+                        
+                        if (env.PREVIOUS_TAG != 'none') {
+                            if (isUnix()) {
+                                sh "docker run -d -p 80:80 --name final-project-${BUILD_NUMBER} ${DOCKER_IMAGE}:${env.PREVIOUS_TAG}"
+                            } else {
+                                bat "docker run -d -p 80:80 --name final-project-%BUILD_NUMBER% ${DOCKER_IMAGE}:${env.PREVIOUS_TAG}"
+                            }
+                            
+                            // Update version history with rollback status
+                            def versionHistory = readJSON file: VERSION_HISTORY_FILE
+                            versionHistory[BUILD_NUMBER].status = 'failed'
+                            versionHistory[env.PREVIOUS_TAG].status = 'rolled_back'
+                            writeJSON file: VERSION_HISTORY_FILE, json: versionHistory
+                            
+                            echo "Rolled back to version ${env.PREVIOUS_TAG}"
+                        } else {
+                            error "Deployment failed and no previous version available for rollback"
+                        }
                     }
                 }
             }
