@@ -234,17 +234,32 @@ pipeline {
         stage('Deploy') {
             steps {
                 script {
-                    if (isUnix()) {
-                        sh '''
-                            echo "Deploying application..."
-                            docker run -d -p ${NGINX_PORT}:80 --name final-project-${BUILD_NUMBER} ${DOCKER_IMAGE}:${DOCKER_TAG}
-                        '''
-                    } else {
-                        bat '''
-                            echo "Deploying application..."
-                            docker run -d -p %NGINX_PORT%:80 --name final-project-%BUILD_NUMBER% ikenna2025/final-project:%BUILD_NUMBER%
-                        '''
+                    echo "Deploying application..."
+                    
+                    // Stop and remove any existing container
+                    sh """
+                        docker stop final-project-${BUILD_NUMBER} || true
+                        docker rm final-project-${BUILD_NUMBER} || true
+                    """
+                    
+                    // Try to run the container with a different port if 80 is taken
+                    try {
+                        sh "docker run -d -p 80:80 --name final-project-${BUILD_NUMBER} ikenna2025/final-project:${BUILD_NUMBER}"
+                    } catch (Exception e) {
+                        echo "Port 80 is in use, trying alternative port 8080..."
+                        sh "docker run -d -p 8080:80 --name final-project-${BUILD_NUMBER} ikenna2025/final-project:${BUILD_NUMBER}"
                     }
+                    
+                    // Wait for container to be healthy
+                    sleep(10)
+                    
+                    // Verify container is running
+                    def containerStatus = sh(script: "docker ps -f name=final-project-${BUILD_NUMBER} --format '{{.Status}}'", returnStdout: true).trim()
+                    if (!containerStatus) {
+                        error "Container failed to start properly"
+                    }
+                    
+                    echo "Deployment successful! Container status: ${containerStatus}"
                 }
             }
         }
