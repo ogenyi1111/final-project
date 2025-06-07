@@ -249,26 +249,21 @@ pipeline {
                         // Build with version information
                         if (isUnix()) {
                             sh """
-                                docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} \
-                                    --build-arg VERSION='${VERSION}' \
-                                    --build-arg BUILD_NUMBER='${BUILD_NUMBER}' \
-                                    --build-arg BUILD_DATE="$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+                                docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} \\
+                                    --build-arg VERSION="${VERSION}" \\
+                                    --build-arg BUILD_NUMBER="${BUILD_NUMBER}" \\
+                                    --build-arg BUILD_DATE="\$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \\
                                     .
                             """
+                            sh "docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:${VERSION}"
                         } else {
                             bat """
                                 docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ^
-                                    --build-arg VERSION='${VERSION}' ^
-                                    --build-arg BUILD_NUMBER='${BUILD_NUMBER}' ^
-                                    --build-arg BUILD_DATE="%date:~-4%-%date:~3,2%-%date:~0,2%T%time:~0,8%Z" ^
+                                    --build-arg VERSION="${VERSION}" ^
+                                    --build-arg BUILD_NUMBER="${BUILD_NUMBER}" ^
+                                    --build-arg BUILD_DATE=%date:~-4%-%date:~3,2%-%date:~0,2%T%time:~0,8%Z ^
                                     .
                             """
-                        }
-                        
-                        // Tag with semantic version
-                        if (isUnix()) {
-                            sh "docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:${VERSION}"
-                        } else {
                             bat "docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:${VERSION}"
                         }
                     } else {
