@@ -39,12 +39,25 @@ pipeline {
         stage('Build') {
             steps {
                 script {
-                    if (isUnix()) {
-                        sh "${env.NPM_CMD} install"
-                        sh "${env.NPM_CMD} run build"
+                    // Check if package.json exists
+                    def packageJsonExists = fileExists 'package.json'
+                    
+                    if (packageJsonExists) {
+                        if (isUnix()) {
+                            sh "${env.NPM_CMD} install"
+                            sh "${env.NPM_CMD} run build"
+                        } else {
+                            bat "${env.NPM_CMD} install"
+                            bat "${env.NPM_CMD} run build"
+                        }
                     } else {
-                        bat "${env.NPM_CMD} install"
-                        bat "${env.NPM_CMD} run build"
+                        echo "No package.json found. Skipping npm build steps."
+                        // Add your non-Node.js build steps here
+                        if (isUnix()) {
+                            sh 'echo "Running non-Node.js build steps..."'
+                        } else {
+                            bat 'echo "Running non-Node.js build steps..."'
+                        }
                     }
                 }
             }
@@ -53,10 +66,22 @@ pipeline {
         stage('Test') {
             steps {
                 script {
-                    if (isUnix()) {
-                        sh "${env.NPM_CMD} run test"
+                    def packageJsonExists = fileExists 'package.json'
+                    
+                    if (packageJsonExists) {
+                        if (isUnix()) {
+                            sh "${env.NPM_CMD} run test"
+                        } else {
+                            bat "${env.NPM_CMD} run test"
+                        }
                     } else {
-                        bat "${env.NPM_CMD} run test"
+                        echo "No package.json found. Skipping npm test steps."
+                        // Add your non-Node.js test steps here
+                        if (isUnix()) {
+                            sh 'echo "Running non-Node.js test steps..."'
+                        } else {
+                            bat 'echo "Running non-Node.js test steps..."'
+                        }
                     }
                 }
             }
@@ -71,10 +96,22 @@ pipeline {
         stage('Lint') {
             steps {
                 script {
-                    if (isUnix()) {
-                        sh "${env.NPM_CMD} run lint"
+                    def packageJsonExists = fileExists 'package.json'
+                    
+                    if (packageJsonExists) {
+                        if (isUnix()) {
+                            sh "${env.NPM_CMD} run lint"
+                        } else {
+                            bat "${env.NPM_CMD} run lint"
+                        }
                     } else {
-                        bat "${env.NPM_CMD} run lint"
+                        echo "No package.json found. Skipping npm lint steps."
+                        // Add your non-Node.js lint steps here
+                        if (isUnix()) {
+                            sh 'echo "Running non-Node.js lint steps..."'
+                        } else {
+                            bat 'echo "Running non-Node.js lint steps..."'
+                        }
                     }
                 }
             }
