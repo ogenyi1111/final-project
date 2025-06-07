@@ -242,13 +242,8 @@ pipeline {
                         docker rm final-project-%BUILD_NUMBER% || exit 0
                     """
                     
-                    // Try to run the container with a different port if 80 is taken
-                    try {
-                        bat "docker run -d -p 80:80 --name final-project-%BUILD_NUMBER% ikenna2025/final-project:%BUILD_NUMBER%"
-                    } catch (Exception e) {
-                        echo "Port 80 is in use, trying alternative port 8081..."
-                        bat "docker run -d -p 8081:80 --name final-project-%BUILD_NUMBER% ikenna2025/final-project:%BUILD_NUMBER%"
-                    }
+                    // Run the container directly on port 8081
+                    bat "docker run -d -p 8081:80 --name final-project-%BUILD_NUMBER% ikenna2025/final-project:%BUILD_NUMBER%"
                     
                     // Wait for container to be healthy
                     sleep(10)
