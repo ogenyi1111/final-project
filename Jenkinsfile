@@ -2,22 +2,15 @@ pipeline {
     agent any
 
     environment {
-        // Define environment variables
         DOCKER_IMAGE = 'ikenna2025/final-project'
         DOCKER_TAG = "${BUILD_NUMBER}"
-        PREVIOUS_TAG = "${env.PREVIOUS_TAG ?: 'none'}"  // Store previous version
-        // Cross-platform path separator
+        PREVIOUS_TAG = "${env.PREVIOUS_TAG ?: 'none'}"
         PATH_SEPARATOR = "${isUnix() ? '/' : '\\'}"
-        // Application environment
         APP_ENV = 'production'
-        // Nginx configuration
         NGINX_PORT = '80'
-        // GitHub repository URL
         GITHUB_REPO = 'https://github.com/ogenyi1111/final-project.git'
-        // Health check configuration
         HEALTH_CHECK_RETRIES = '3'
         HEALTH_CHECK_INTERVAL = '10'
-        // Version management
         VERSION_FILE = 'version.txt'
         MAJOR_VERSION = '1'
         MINOR_VERSION = '0'
@@ -30,7 +23,6 @@ pipeline {
         stage('Version Management') {
             steps {
                 script {
-                    // Create or update version file
                     if (isUnix()) {
                         sh """
                             echo "${VERSION}" > ${VERSION_FILE}
@@ -39,27 +31,26 @@ pipeline {
                     } else {
                         bat """
                             echo ${VERSION} > ${VERSION_FILE}
-                            echo "Version ${VERSION} created"
+                            echo Version ${VERSION} created
                         """
                     }
 
-                    // Update version history
                     def versionHistory = [:]
                     if (fileExists(VERSION_HISTORY_FILE)) {
                         versionHistory = readJSON file: VERSION_HISTORY_FILE
                     }
-                    
+
                     def commitHash = isUnix() ? 
                         sh(script: 'git rev-parse HEAD', returnStdout: true).trim() :
                         bat(script: 'git rev-parse HEAD', returnStdout: true).trim()
-                    
+
                     versionHistory[BUILD_NUMBER] = [
                         version: VERSION,
                         timestamp: new Date().format("yyyy-MM-dd'T'HH:mm:ss'Z'"),
                         commit: commitHash,
                         status: 'created'
                     ]
-                    
+
                     writeJSON file: VERSION_HISTORY_FILE, json: versionHistory
                 }
             }
@@ -67,9 +58,7 @@ pipeline {
 
         stage('Checkout') {
             steps {
-                // Clean workspace
                 cleanWs()
-                // Configure Git
                 git branch: 'main',
                     url: "${GITHUB_REPO}",
                     credentialsId: 'github-credentials'
@@ -82,7 +71,7 @@ pipeline {
                     if (isUnix()) {
                         sh 'echo "Running on Unix-like system"'
                     } else {
-                        bat 'echo "Running on Windows system"'
+                        bat 'echo Running on Windows system'
                     }
                 }
             }
@@ -96,29 +85,29 @@ pipeline {
                             if (isUnix()) {
                                 sh '''
                                     echo "Running HTML validation..."
-                                    find . -name "*.html" -exec echo "Validating {}" \\;
+                                    find . -name "*.html" -exec echo "Validating {}" \;
                                 '''
                             } else {
                                 bat '''
-                                    echo "Running HTML validation..."
+                                    echo Running HTML validation...
                                     dir /s /b *.html
                                 '''
                             }
                         }
                     }
                 }
-                
+
                 stage('Security Scan') {
                     steps {
                         script {
                             if (isUnix()) {
                                 sh '''
                                     echo "Running security scan..."
-                                    find . -type f -exec echo "Scanning {}" \\;
+                                    find . -type f -exec echo "Scanning {}" \;
                                 '''
                             } else {
                                 bat '''
-                                    echo "Running security scan..."
+                                    echo Running security scan...
                                     dir /s /b
                                 '''
                             }
@@ -131,9 +120,8 @@ pipeline {
         stage('Build') {
             steps {
                 script {
-                    // Check if package.json exists
                     def packageJsonExists = fileExists 'package.json'
-                    
+
                     if (packageJsonExists) {
                         if (isUnix()) {
                             sh 'npm install'
@@ -146,13 +134,9 @@ pipeline {
                         echo "No package.json found. Running basic build steps..."
                         if (isUnix()) {
                             sh 'echo "Running basic build steps..."'
-                        } else {
-                            bat 'echo "Running basic build steps..."'
-                        }
-                        // List files in workspace
-                        if (isUnix()) {
                             sh 'ls -la'
                         } else {
+                            bat 'echo Running basic build steps...'
                             bat 'dir'
                         }
                     }
@@ -164,7 +148,7 @@ pipeline {
             steps {
                 script {
                     def packageJsonExists = fileExists 'package.json'
-                    
+
                     if (packageJsonExists) {
                         if (isUnix()) {
                             sh 'npm test'
@@ -175,19 +159,11 @@ pipeline {
                         echo "No package.json found. Running basic test steps..."
                         if (isUnix()) {
                             sh 'echo "Running basic test steps..."'
-                        } else {
-                            bat 'echo "Running basic test steps..."'
-                        }
-                        // List files in templates directory
-                        if (isUnix()) {
                             sh 'ls -la templates/'
-                        } else {
-                            bat 'dir templates'
-                        }
-                        // List files in static directory
-                        if (isUnix()) {
                             sh 'ls -la static/'
                         } else {
+                            bat 'echo Running basic test steps...'
+                            bat 'dir templates'
                             bat 'dir static'
                         }
                     }
@@ -211,7 +187,7 @@ pipeline {
             steps {
                 script {
                     def packageJsonExists = fileExists 'package.json'
-                    
+
                     if (packageJsonExists) {
                         if (isUnix()) {
                             sh 'npm run lint'
@@ -222,13 +198,9 @@ pipeline {
                         echo "No package.json found. Running basic lint steps..."
                         if (isUnix()) {
                             sh 'echo "Running basic lint steps..."'
-                        } else {
-                            bat 'echo "Running basic lint steps..."'
-                        }
-                        // List all HTML, CSS, and JS files
-                        if (isUnix()) {
                             sh 'find . -type f -name "*.html" -o -name "*.css" -o -name "*.js"'
                         } else {
+                            bat 'echo Running basic lint steps...'
                             bat 'dir /s /b *.html *.css *.js'
                         }
                     }
@@ -244,14 +216,13 @@ pipeline {
                     } else {
                         bat 'where docker'
                     }
-                    
+
                     if (fileExists('Dockerfile')) {
-                        // Build with version information
                         if (isUnix()) {
                             sh """
                                 docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} \\
-                                    --build-arg VERSION="${VERSION}" \\
-                                    --build-arg BUILD_NUMBER="${BUILD_NUMBER}" \\
+                                    --build-arg VERSION='${VERSION}' \\
+                                    --build-arg BUILD_NUMBER='${BUILD_NUMBER}' \\
                                     --build-arg BUILD_DATE="\$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \\
                                     .
                             """
@@ -259,8 +230,8 @@ pipeline {
                         } else {
                             bat """
                                 docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ^
-                                    --build-arg VERSION="${VERSION}" ^
-                                    --build-arg BUILD_NUMBER="${BUILD_NUMBER}" ^
+                                    --build-arg VERSION=${VERSION} ^
+                                    --build-arg BUILD_NUMBER=${BUILD_NUMBER} ^
                                     --build-arg BUILD_DATE=%date:~-4%-%date:~3,2%-%date:~0,2%T%time:~0,8%Z ^
                                     .
                             """
@@ -275,9 +246,7 @@ pipeline {
 
         stage('Push Docker Image') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', 
-                                               usernameVariable: 'DOCKER_USERNAME', 
-                                               passwordVariable: 'DOCKER_PASSWORD')]) {
+                withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
                     script {
                         if (isUnix()) {
                             sh '''
@@ -299,60 +268,50 @@ pipeline {
             steps {
                 script {
                     echo "Deploying application version ${VERSION}..."
-                    
-                    // Store current version before deployment
+
                     def currentVersion = isUnix() ?
-                        sh(script: "docker ps -f name=final-project --format \"{{.Image}}\"", returnStdout: true).trim() :
-                        bat(script: "docker ps -f name=final-project --format \"{{.Image}}\"", returnStdout: true).trim()
-                    
+                        sh(script: "docker ps -f name=final-project --format '{{.Image}}'", returnStdout: true).trim() :
+                        bat(script: "docker ps -f name=final-project --format '{{.Image}}'", returnStdout: true).trim()
+
                     if (currentVersion) {
                         env.PREVIOUS_TAG = currentVersion.split(':')[1]
                         echo "Storing previous version: ${env.PREVIOUS_TAG}"
-                        
-                        // Update version history with deployment status
+
                         def versionHistory = readJSON file: VERSION_HISTORY_FILE
                         versionHistory[env.PREVIOUS_TAG].status = 'deployed'
                         writeJSON file: VERSION_HISTORY_FILE, json: versionHistory
                     }
-                    
-                    // Stop and remove any existing container
-                    if (isUnix()) {
-                        sh "docker stop final-project-${BUILD_NUMBER} || true"
-                        sh "docker rm final-project-${BUILD_NUMBER} || true"
-                    } else {
-                        bat "docker stop final-project-%BUILD_NUMBER% || exit 0"
-                        bat "docker rm final-project-%BUILD_NUMBER% || exit 0"
-                    }
-                    
-                    // Deploy new version
+
                     try {
                         if (isUnix()) {
+                            sh "docker stop final-project-${BUILD_NUMBER} || true"
+                            sh "docker rm final-project-${BUILD_NUMBER} || true"
                             sh "docker run -d -p 80:80 --name final-project-${BUILD_NUMBER} ${DOCKER_IMAGE}:${VERSION}"
                         } else {
+                            bat "docker stop final-project-%BUILD_NUMBER% || exit 0"
+                            bat "docker rm final-project-%BUILD_NUMBER% || exit 0"
                             bat "docker run -d -p 80:80 --name final-project-%BUILD_NUMBER% ${DOCKER_IMAGE}:${VERSION}"
                         }
-                        
-                        // Update version history with deployment status
+
                         def versionHistory = readJSON file: VERSION_HISTORY_FILE
                         versionHistory[BUILD_NUMBER].status = 'deployed'
                         writeJSON file: VERSION_HISTORY_FILE, json: versionHistory
-                        
+
                     } catch (Exception e) {
                         echo "Deployment failed, attempting rollback..."
-                        
+
                         if (env.PREVIOUS_TAG != 'none') {
                             if (isUnix()) {
                                 sh "docker run -d -p 80:80 --name final-project-${BUILD_NUMBER} ${DOCKER_IMAGE}:${env.PREVIOUS_TAG}"
                             } else {
                                 bat "docker run -d -p 80:80 --name final-project-%BUILD_NUMBER% ${DOCKER_IMAGE}:${env.PREVIOUS_TAG}"
                             }
-                            
-                            // Update version history with rollback status
+
                             def versionHistory = readJSON file: VERSION_HISTORY_FILE
                             versionHistory[BUILD_NUMBER].status = 'failed'
                             versionHistory[env.PREVIOUS_TAG].status = 'rolled_back'
                             writeJSON file: VERSION_HISTORY_FILE, json: versionHistory
-                            
+
                             echo "Rolled back to version ${env.PREVIOUS_TAG}"
                         } else {
                             error "Deployment failed and no previous version available for rollback"
@@ -365,41 +324,31 @@ pipeline {
 
     post {
         always {
-            // Clean up workspace
             cleanWs()
         }
         success {
             script {
                 echo "Application deployed successfully!"
-                // Add deployment success metrics
                 if (isUnix()) {
                     sh 'echo "Deployment metrics collected"'
                 } else {
-                    bat 'echo "Deployment metrics collected"'
+                    bat 'echo Deployment metrics collected'
                 }
             }
         }
         failure {
             script {
                 echo "Deployment failed! Initiating rollback..."
-                
-                // Rollback to previous version if available
+
                 if (env.PREVIOUS_TAG && env.PREVIOUS_TAG != 'none') {
                     echo "Rolling back to version: ${env.PREVIOUS_TAG}"
-                    
-                    // Stop and remove failed container
                     bat """
                         docker stop final-project-%BUILD_NUMBER% || exit 0
                         docker rm final-project-%BUILD_NUMBER% || exit 0
                     """
-                    
-                    // Start previous version
                     bat "docker run -d -p 8081:80 --name final-project-rollback ikenna2025/final-project:${env.PREVIOUS_TAG}"
-                    
-                    // Verify rollback
                     sleep(10)
-                    def rollbackStatus = bat(script: "docker ps -f name=final-project-rollback --format \"{{.Status}}\"", returnStdout: true).trim()
-                    
+                    def rollbackStatus = bat(script: "docker ps -f name=final-project-rollback --format '{{.Status}}'", returnStdout: true).trim()
                     if (rollbackStatus) {
                         echo "Rollback successful! Container status: ${rollbackStatus}"
                     } else {
@@ -411,4 +360,4 @@ pipeline {
             }
         }
     }
-} 
+}
