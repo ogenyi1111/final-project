@@ -237,24 +237,24 @@ pipeline {
                     echo "Deploying application..."
                     
                     // Stop and remove any existing container
-                    sh """
-                        docker stop final-project-${BUILD_NUMBER} || true
-                        docker rm final-project-${BUILD_NUMBER} || true
+                    bat """
+                        docker stop final-project-%BUILD_NUMBER% || exit 0
+                        docker rm final-project-%BUILD_NUMBER% || exit 0
                     """
                     
                     // Try to run the container with a different port if 80 is taken
                     try {
-                        sh "docker run -d -p 80:80 --name final-project-${BUILD_NUMBER} ikenna2025/final-project:${BUILD_NUMBER}"
+                        bat "docker run -d -p 80:80 --name final-project-%BUILD_NUMBER% ikenna2025/final-project:%BUILD_NUMBER%"
                     } catch (Exception e) {
                         echo "Port 80 is in use, trying alternative port 8080..."
-                        sh "docker run -d -p 8080:80 --name final-project-${BUILD_NUMBER} ikenna2025/final-project:${BUILD_NUMBER}"
+                        bat "docker run -d -p 8080:80 --name final-project-%BUILD_NUMBER% ikenna2025/final-project:%BUILD_NUMBER%"
                     }
                     
                     // Wait for container to be healthy
                     sleep(10)
                     
                     // Verify container is running
-                    def containerStatus = sh(script: "docker ps -f name=final-project-${BUILD_NUMBER} --format '{{.Status}}'", returnStdout: true).trim()
+                    def containerStatus = bat(script: "docker ps -f name=final-project-%BUILD_NUMBER% --format \"{{.Status}}\"", returnStdout: true).trim()
                     if (!containerStatus) {
                         error "Container failed to start properly"
                     }
