@@ -273,22 +273,7 @@ pipeline {
                 script {
                     echo "Deploying application version ${VERSION}..."
                     
-                    // Get previous version
-                    def previousVersion = 'none'
-                    if (fileExists(VERSION_HISTORY_FILE)) {
-                        try {
-                            def versionHistory = readJSON file: VERSION_HISTORY_FILE
-                            def previousBuild = versionHistory.find { it.value.status == 'deployed' }
-                            if (previousBuild) {
-                                previousVersion = previousBuild.value.version
-                            }
-                        } catch (Exception e) {
-                            echo "Warning: Could not read version history: ${e.message}"
-                        }
-                    }
-                    echo "Storing previous version: ${previousVersion}"
-
-                    // Update version history with deployment status
+                    // Initialize version history
                     def versionHistory = [:]
                     if (fileExists(VERSION_HISTORY_FILE)) {
                         try {
@@ -297,9 +282,50 @@ pipeline {
                             echo "Warning: Could not read version history: ${e.message}"
                         }
                     }
-                    
+
+                    // Get previous version
+                    def previousVersion = 'none'
+                    if (versionHistory) {
+                        def previousBuild = versionHistory.find { it.value.status == 'deployed' }
+                        if (previousBuild) {
+                            previousVersion = previousBuild.value.version
+                        }
+                    }
+                    echo "Storing previous version: ${previousVersion}"
+
+                    // Ensure the current build entry exists
+                    if (!versionHistory[BUILD_NUMBER]) {
+                        versionHistory[BUILD_NUMBER] = [
+                            version: VERSION,
+                            timestamp: new Date().format("yyyy-MM-dd'T'HH:mm:ss'Z'"),
+                            commit: isUnix() ? 
+                                sh(script: 'git rev-parse HEAD', returnStdout: true).trim() :
+                                bat(script: 'git rev-parse HEAD', returnStdout: true).trim(),
+                            status: 'created'
+                        ]
+                    }
+
+                    // Update deployment status
                     versionHistory[BUILD_NUMBER].status = 'deployed'
                     writeJSON file: VERSION_HISTORY_FILE, json: versionHistory
+
+                    // Deploy the container
+                    try {
+                        if (isUnix()) {
+                            sh "docker stop final-project-${BUILD_NUMBER} || true"
+                            sh "docker rm final-project-${BUILD_NUMBER} || true"
+                            sh "docker run -d -p 80:80 --name final-project-${BUILD_NUMBER} ${DOCKER_IMAGE}:${VERSION}"
+                        } else {
+                            bat "docker stop final-project-%BUILD_NUMBER% || exit 0"
+                            bat "docker rm final-project-%BUILD_NUMBER% || exit 0"
+                            bat "docker run -d -p 80:80 --name final-project-%BUILD_NUMBER% ${DOCKER_IMAGE}:${VERSION}"
+                        }
+                    } catch (Exception e) {
+                        echo "Deployment failed: ${e.message}"
+                        versionHistory[BUILD_NUMBER].status = 'failed'
+                        writeJSON file: VERSION_HISTORY_FILE, json: versionHistory
+                        error "Deployment failed: ${e.message}"
+                    }
                 }
             }
         }
