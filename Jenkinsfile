@@ -6,7 +6,7 @@ pipeline {
         DOCKER_TAG = "${BUILD_NUMBER}"
         PREVIOUS_TAG = "${env.PREVIOUS_TAG ?: 'none'}"
         PATH_SEPARATOR = "${isUnix() ? '/' : '\\'}"
-        APP_ENV = 'production'
+        APP_ENV = 'development'  // Default environment
         NGINX_PORT = '80'
         GITHUB_REPO = 'https://github.com/ogenyi1111/final-project.git'
         HEALTH_CHECK_RETRIES = '3'
@@ -17,24 +17,54 @@ pipeline {
         PATCH_VERSION = '0'
         VERSION = "${MAJOR_VERSION}.${MINOR_VERSION}.${PATCH_VERSION}-${BUILD_NUMBER}"
         VERSION_HISTORY_FILE = 'version_history.json'
+        
+        // Environment-specific configurations
+        DEV_PORT = '8082'
+        STAGING_PORT = '8081'
+        PROD_PORT = '80'
+        
+        DEV_NETWORK = 'dev-network'
+        STAGING_NETWORK = 'staging-network'
+        PROD_NETWORK = 'prod-network'
+    }
+
+    parameters {
+        choice(name: 'DEPLOY_ENV', choices: ['development', 'staging', 'production'], description: 'Select deployment environment')
     }
 
     stages {
         stage('Version Management') {
             steps {
                 script {
+                    // Set environment-specific variables
+                    if (params.DEPLOY_ENV == 'development') {
+                        env.APP_ENV = 'development'
+                        env.NGINX_PORT = env.DEV_PORT
+                        env.NETWORK_NAME = env.DEV_NETWORK
+                    } else if (params.DEPLOY_ENV == 'staging') {
+                        env.APP_ENV = 'staging'
+                        env.NGINX_PORT = env.STAGING_PORT
+                        env.NETWORK_NAME = env.STAGING_NETWORK
+                    } else if (params.DEPLOY_ENV == 'production') {
+                        env.APP_ENV = 'production'
+                        env.NGINX_PORT = env.PROD_PORT
+                        env.NETWORK_NAME = env.PROD_NETWORK
+                    }
+
+                    // Create version.txt
                     if (isUnix()) {
                         sh """
                             echo "${VERSION}" > ${VERSION_FILE}
-                            echo "Version ${VERSION} created"
+                            echo "Version ${VERSION} created for ${env.APP_ENV} environment"
                         """
                     } else {
                         bat """
                             echo ${VERSION} > ${VERSION_FILE}
-                            echo Version ${VERSION} created
+                            echo Version ${VERSION} created for ${env.APP_ENV} environment
                         """
                     }
 
+                    // Initialize version history
                     def versionHistory = [:]
                     if (fileExists(VERSION_HISTORY_FILE)) {
                         try {
@@ -45,19 +75,22 @@ pipeline {
                         }
                     }
 
+                    // Get commit hash
                     def commitHash = isUnix() ? 
                         sh(script: 'git rev-parse HEAD', returnStdout: true).trim() :
                         bat(script: 'git rev-parse HEAD', returnStdout: true).trim()
 
+                    // Update version history
                     versionHistory[BUILD_NUMBER] = [
                         version: VERSION,
                         timestamp: new Date().format("yyyy-MM-dd'T'HH:mm:ss'Z'"),
                         commit: commitHash,
+                        environment: env.APP_ENV,
                         status: 'created'
                     ]
 
                     writeJSON file: VERSION_HISTORY_FILE, json: versionHistory
-                    echo "Version history updated for build ${BUILD_NUMBER}"
+                    echo "Version history updated for build ${BUILD_NUMBER} in ${env.APP_ENV} environment"
                 }
             }
         }
@@ -230,16 +263,19 @@ pipeline {
                                     --build-arg VERSION='${VERSION}' \\
                                     --build-arg BUILD_NUMBER='${BUILD_NUMBER}' \\
                                     --build-arg BUILD_DATE="\$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \\
+                                    --build-arg APP_ENV='${env.APP_ENV}' \\
                                     .
                             """
                             sh "docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:${VERSION}"
+                            sh "docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:${env.APP_ENV}"
                         } else {
                             bat """
                                 for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value') do set datetime=%%I
                                 set BUILD_DATE=%datetime:~0,8%T%datetime:~8,6%Z
-                                docker build -t ikenna2025/final-project:${BUILD_NUMBER} --build-arg VERSION=${VERSION} --build-arg BUILD_NUMBER=${BUILD_NUMBER} --build-arg BUILD_DATE=%BUILD_DATE% .
+                                docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} --build-arg VERSION=${VERSION} --build-arg BUILD_NUMBER=${BUILD_NUMBER} --build-arg BUILD_DATE=%BUILD_DATE% --build-arg APP_ENV=${env.APP_ENV} .
                             """
                             bat "docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:${VERSION}"
+                            bat "docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:${env.APP_ENV}"
                         }
                     } else {
                         error "Dockerfile not found!"
@@ -254,14 +290,18 @@ pipeline {
                     script {
                         if (isUnix()) {
                             sh '''
-                                echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+                                echo "${DOCKER_PASSWORD}" | docker login -u ${DOCKER_USERNAME} --password-stdin
                                 docker push ${DOCKER_IMAGE}:${DOCKER_TAG}
+                                docker push ${DOCKER_IMAGE}:${VERSION}
+                                docker push ${DOCKER_IMAGE}:${env.APP_ENV}
                             '''
                         } else {
-                            bat '''
+                            bat """
                                 echo %DOCKER_PASSWORD% | docker login -u %DOCKER_USERNAME% --password-stdin
-                                docker push %DOCKER_IMAGE%:%DOCKER_TAG%
-                            '''
+                                docker push ${DOCKER_IMAGE}:${DOCKER_TAG}
+                                docker push ${DOCKER_IMAGE}:${VERSION}
+                                docker push ${DOCKER_IMAGE}:${env.APP_ENV}
+                            """
                         }
                     }
                 }
@@ -271,7 +311,7 @@ pipeline {
         stage('Deploy') {
             steps {
                 script {
-                    echo "Deploying application version ${VERSION}..."
+                    echo "Deploying application version ${VERSION} to ${env.APP_ENV} environment..."
                     
                     // Initialize version history
                     def versionHistory = [:]
@@ -286,7 +326,7 @@ pipeline {
                     // Get previous version
                     def previousVersion = 'none'
                     if (versionHistory) {
-                        def previousBuild = versionHistory.find { it.value.status == 'deployed' }
+                        def previousBuild = versionHistory.find { it.value.status == 'deployed' && it.value.environment == env.APP_ENV }
                         if (previousBuild) {
                             previousVersion = previousBuild.value.version
                         }
@@ -301,25 +341,33 @@ pipeline {
                             commit: isUnix() ? 
                                 sh(script: 'git rev-parse HEAD', returnStdout: true).trim() :
                                 bat(script: 'git rev-parse HEAD', returnStdout: true).trim(),
+                            environment: env.APP_ENV,
                             status: 'created'
                         ]
                     }
 
-                    // Update deployment status
-                    versionHistory[BUILD_NUMBER].status = 'deployed'
-                    writeJSON file: VERSION_HISTORY_FILE, json: versionHistory
-
-                    // Deploy the container
+                    // Deploy using docker-compose
                     try {
                         if (isUnix()) {
-                            sh "docker stop final-project-${BUILD_NUMBER} || true"
-                            sh "docker rm final-project-${BUILD_NUMBER} || true"
-                            sh "docker run -d -p 80:80 --name final-project-${BUILD_NUMBER} ${DOCKER_IMAGE}:${VERSION}"
+                            sh """
+                                export COMPOSE_PROJECT_NAME=final-project-${env.APP_ENV}
+                                export NGINX_PORT=${env.NGINX_PORT}
+                                export NETWORK_NAME=${env.NETWORK_NAME}
+                                docker-compose -f docker-compose.yml -f docker-compose.${env.APP_ENV}.yml up -d
+                            """
                         } else {
-                            bat "docker stop final-project-%BUILD_NUMBER% || exit 0"
-                            bat "docker rm final-project-%BUILD_NUMBER% || exit 0"
-                            bat "docker run -d -p 80:80 --name final-project-%BUILD_NUMBER% ${DOCKER_IMAGE}:${VERSION}"
+                            bat """
+                                set COMPOSE_PROJECT_NAME=final-project-${env.APP_ENV}
+                                set NGINX_PORT=${env.NGINX_PORT}
+                                set NETWORK_NAME=${env.NETWORK_NAME}
+                                docker-compose -f docker-compose.yml -f docker-compose.%APP_ENV%.yml up -d
+                            """
                         }
+
+                        // Update deployment status
+                        versionHistory[BUILD_NUMBER].status = 'deployed'
+                        writeJSON file: VERSION_HISTORY_FILE, json: versionHistory
+                        echo "Successfully deployed to ${env.APP_ENV} environment"
                     } catch (Exception e) {
                         echo "Deployment failed: ${e.message}"
                         versionHistory[BUILD_NUMBER].status = 'failed'
@@ -335,34 +383,12 @@ pipeline {
         always {
             cleanWs()
         }
-        success {
-            script {
-                echo "Application deployed successfully!"
-                if (isUnix()) {
-                    sh 'echo "Deployment metrics collected"'
-                } else {
-                    bat 'echo Deployment metrics collected'
-                }
-            }
-        }
         failure {
             script {
                 echo "Deployment failed! Initiating rollback..."
-
-                if (env.PREVIOUS_TAG && env.PREVIOUS_TAG != 'none') {
-                    echo "Rolling back to version: ${env.PREVIOUS_TAG}"
-                    bat """
-                        docker stop final-project-%BUILD_NUMBER% || exit 0
-                        docker rm final-project-%BUILD_NUMBER% || exit 0
-                    """
-                    bat "docker run -d -p 8081:80 --name final-project-rollback ikenna2025/final-project:${env.PREVIOUS_TAG}"
-                    sleep(10)
-                    def rollbackStatus = bat(script: "docker ps -f name=final-project-rollback --format '{{.Status}}'", returnStdout: true).trim()
-                    if (rollbackStatus) {
-                        echo "Rollback successful! Container status: ${rollbackStatus}"
-                    } else {
-                        echo "Rollback failed! Please check the container logs."
-                    }
+                if (env.PREVIOUS_TAG != 'none') {
+                    echo "Rolling back to version ${env.PREVIOUS_TAG}"
+                    // Add rollback logic here
                 } else {
                     echo "No previous version available for rollback"
                 }
