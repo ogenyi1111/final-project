@@ -5,6 +5,7 @@ pipeline {
         // Define environment variables
         DOCKER_IMAGE = 'ikenna2025/final-project'
         DOCKER_TAG = "${BUILD_NUMBER}"
+        PREVIOUS_TAG = "${env.PREVIOUS_TAG ?: 'none'}"  // Store previous version
         // Cross-platform path separator
         PATH_SEPARATOR = "${isUnix() ? '/' : '\\'}"
         // Application environment
@@ -13,6 +14,9 @@ pipeline {
         NGINX_PORT = '80'
         // GitHub repository URL
         GITHUB_REPO = 'https://github.com/ogenyi1111/final-project.git'
+        // Health check configuration
+        HEALTH_CHECK_RETRIES = '3'
+        HEALTH_CHECK_INTERVAL = '10'
     }
 
     stages {
@@ -236,6 +240,13 @@ pipeline {
                 script {
                     echo "Deploying application..."
                     
+                    // Store current version before deployment
+                    def currentVersion = bat(script: "docker ps -f name=final-project --format \"{{.Image}}\"", returnStdout: true).trim()
+                    if (currentVersion) {
+                        env.PREVIOUS_TAG = currentVersion.split(':')[1]
+                        echo "Storing previous version: ${env.PREVIOUS_TAG}"
+                    }
+                    
                     // Stop and remove any existing container
                     bat """
                         docker stop final-project-%BUILD_NUMBER% || exit 0
@@ -246,12 +257,18 @@ pipeline {
                     bat "docker run -d -p 8081:80 --name final-project-%BUILD_NUMBER% ikenna2025/final-project:%BUILD_NUMBER%"
                     
                     // Wait for container to be healthy
-                    sleep(10)
+                    def healthCheckPassed = false
+                    for (int i = 0; i < HEALTH_CHECK_RETRIES.toInteger(); i++) {
+                        sleep(HEALTH_CHECK_INTERVAL.toInteger())
+                        def containerStatus = bat(script: "docker ps -f name=final-project-%BUILD_NUMBER% --format \"{{.Status}}\"", returnStdout: true).trim()
+                        if (containerStatus && containerStatus.contains("Up")) {
+                            healthCheckPassed = true
+                            break
+                        }
+                    }
                     
-                    // Verify container is running
-                    def containerStatus = bat(script: "docker ps -f name=final-project-%BUILD_NUMBER% --format \"{{.Status}}\"", returnStdout: true).trim()
-                    if (!containerStatus) {
-                        error "Container failed to start properly"
+                    if (!healthCheckPassed) {
+                        error "Health check failed after ${HEALTH_CHECK_RETRIES} attempts"
                     }
                     
                     echo "Deployment successful! Container status: ${containerStatus}"
@@ -264,25 +281,6 @@ pipeline {
         always {
             // Clean up workspace
             cleanWs()
-            script {
-                if (currentBuild.currentResult == 'SUCCESS') {
-                    echo "Pipeline completed successfully!"
-                    // Send success notification
-                    if (isUnix()) {
-                        sh 'echo "Deployment successful!"'
-                    } else {
-                        bat 'echo "Deployment successful!"'
-                    }
-                } else {
-                    echo "Pipeline failed!"
-                    // Send failure notification
-                    if (isUnix()) {
-                        sh 'echo "Deployment failed!"'
-                    } else {
-                        bat 'echo "Deployment failed!"'
-                    }
-                }
-            }
         }
         success {
             script {
@@ -297,12 +295,32 @@ pipeline {
         }
         failure {
             script {
-                echo "Deployment failed!"
-                // Add failure handling
-                if (isUnix()) {
-                    sh 'echo "Rolling back deployment..."'
+                echo "Deployment failed! Initiating rollback..."
+                
+                // Rollback to previous version if available
+                if (env.PREVIOUS_TAG && env.PREVIOUS_TAG != 'none') {
+                    echo "Rolling back to version: ${env.PREVIOUS_TAG}"
+                    
+                    // Stop and remove failed container
+                    bat """
+                        docker stop final-project-%BUILD_NUMBER% || exit 0
+                        docker rm final-project-%BUILD_NUMBER% || exit 0
+                    """
+                    
+                    // Start previous version
+                    bat "docker run -d -p 8081:80 --name final-project-rollback ikenna2025/final-project:${env.PREVIOUS_TAG}"
+                    
+                    // Verify rollback
+                    sleep(10)
+                    def rollbackStatus = bat(script: "docker ps -f name=final-project-rollback --format \"{{.Status}}\"", returnStdout: true).trim()
+                    
+                    if (rollbackStatus) {
+                        echo "Rollback successful! Container status: ${rollbackStatus}"
+                    } else {
+                        echo "Rollback failed! Please check the container logs."
+                    }
                 } else {
-                    bat 'echo "Rolling back deployment..."'
+                    echo "No previous version available for rollback"
                 }
             }
         }
