@@ -17,9 +17,12 @@ RUN echo "Version: ${VERSION}" > /usr/share/nginx/html/version.txt && \
     echo "Build Number: ${BUILD_NUMBER}" >> /usr/share/nginx/html/version.txt && \
     echo "Build Date: ${BUILD_DATE}" >> /usr/share/nginx/html/version.txt
 
+# Create necessary directories
+RUN mkdir -p /usr/share/nginx/html/static
+
 # Copy the static files and templates
-COPY static/ /usr/share/nginx/html/static/
-COPY templates/ /usr/share/nginx/html/
+COPY static/* /usr/share/nginx/html/static/
+COPY templates/* /usr/share/nginx/html/
 
 # Copy custom Nginx configuration
 COPY nginx.conf /etc/nginx/conf.d/default.conf
