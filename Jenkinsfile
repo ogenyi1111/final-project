@@ -260,9 +260,10 @@ pipeline {
                     def healthCheckPassed = false
                     for (int i = 0; i < HEALTH_CHECK_RETRIES.toInteger(); i++) {
                         sleep(HEALTH_CHECK_INTERVAL.toInteger())
-                        def containerStatus = bat(script: "docker ps -f name=final-project-%BUILD_NUMBER% --format \"{{.Status}}\"", returnStdout: true).trim()
-                        if (containerStatus && containerStatus.contains("Up")) {
+                        def status = bat(script: "docker ps -f name=final-project-%BUILD_NUMBER% --format \"{{.Status}}\"", returnStdout: true).trim()
+                        if (status && status.contains("Up")) {
                             healthCheckPassed = true
+                            echo "Container is healthy. Status: ${status}"
                             break
                         }
                     }
@@ -270,8 +271,6 @@ pipeline {
                     if (!healthCheckPassed) {
                         error "Health check failed after ${HEALTH_CHECK_RETRIES} attempts"
                     }
-                    
-                    echo "Deployment successful! Container status: ${containerStatus}"
                 }
             }
         }
