@@ -21,7 +21,7 @@ pipeline {
         // Environment-specific configurations
         DEV_PORT = '8082'
         STAGING_PORT = '8081'
-        PROD_PORT = '80'
+        PROD_PORT = '8083'  // Updated to match docker-compose.production.yml
         
         DEV_NETWORK = 'dev-network'
         STAGING_NETWORK = 'staging-network'
@@ -321,12 +321,24 @@ pipeline {
                     if (isUnix()) {
                         def portCheck = sh(script: "netstat -tuln | grep ':${port}' || true", returnStdout: true).trim()
                         if (portCheck) {
-                            error "Port ${port} is already in use. Please free up the port before deployment."
+                            echo "Port ${port} is in use. Attempting to stop existing containers..."
+                            sh "docker-compose -f docker-compose.yml -f docker-compose.${DEPLOY_ENV}.yml down || true"
+                            sleep(5) // Wait for containers to stop
+                            portCheck = sh(script: "netstat -tuln | grep ':${port}' || true", returnStdout: true).trim()
+                            if (portCheck) {
+                                error "Port ${port} is still in use after stopping containers. Please free up the port manually."
+                            }
                         }
                     } else {
                         def portCheck = bat(script: "netstat -ano | findstr :${port}", returnStdout: true).trim()
                         if (portCheck) {
-                            error "Port ${port} is already in use. Please free up the port before deployment."
+                            echo "Port ${port} is in use. Attempting to stop existing containers..."
+                            bat "docker-compose -f docker-compose.yml -f docker-compose.${DEPLOY_ENV}.yml down || exit /b 0"
+                            sleep(5) // Wait for containers to stop
+                            portCheck = bat(script: "netstat -ano | findstr :${port}", returnStdout: true).trim()
+                            if (portCheck) {
+                                error "Port ${port} is still in use after stopping containers. Please free up the port manually."
+                            }
                         }
                     }
                     
@@ -349,17 +361,21 @@ pipeline {
                     if (isUnix()) {
                         sh """
                             export COMPOSE_PROJECT_NAME=final-project-${DEPLOY_ENV}
-                            export DOCKER_IMAGE=ikenna2025/final-project
+                            export DOCKER_IMAGE=${DOCKER_IMAGE}
                             export NGINX_PORT=${port}
-                            export NETWORK_NAME=app-network
+                            export NETWORK_NAME=${env.NETWORK_NAME}
+                            export VERSION=${VERSION}
+                            docker-compose -f docker-compose.yml -f docker-compose.${DEPLOY_ENV}.yml down || true
                             docker-compose -f docker-compose.yml -f docker-compose.${DEPLOY_ENV}.yml up -d
                         """
                     } else {
                         bat """
                             set COMPOSE_PROJECT_NAME=final-project-${DEPLOY_ENV}
-                            set DOCKER_IMAGE=ikenna2025/final-project
+                            set DOCKER_IMAGE=${DOCKER_IMAGE}
                             set NGINX_PORT=${port}
-                            set NETWORK_NAME=app-network
+                            set NETWORK_NAME=${env.NETWORK_NAME}
+                            set VERSION=${VERSION}
+                            docker-compose -f docker-compose.yml -f docker-compose.${DEPLOY_ENV}.yml down || exit /b 0
                             docker-compose -f docker-compose.yml -f docker-compose.${DEPLOY_ENV}.yml up -d
                         """
                     }
@@ -426,21 +442,27 @@ pipeline {
                 echo "Deployment failed! Initiating rollback..."
                 if (env.PREVIOUS_VERSION && env.PREVIOUS_VERSION != 'none') {
                     echo "Rolling back to version: ${env.PREVIOUS_VERSION}"
+                    def port = DEPLOY_ENV == 'development' ? env.DEV_PORT : 
+                              DEPLOY_ENV == 'staging' ? env.STAGING_PORT : 
+                              env.PROD_PORT
+                    
                     if (isUnix()) {
                         sh """
                             export COMPOSE_PROJECT_NAME=final-project-${DEPLOY_ENV}
-                            export DOCKER_IMAGE=ikenna2025/final-project
-                            export NGINX_PORT=${DEPLOY_ENV == 'development' ? env.DEV_PORT : DEPLOY_ENV == 'staging' ? env.STAGING_PORT : env.PROD_PORT}
-                            export NETWORK_NAME=app-network
+                            export DOCKER_IMAGE=${DOCKER_IMAGE}
+                            export NGINX_PORT=${port}
+                            export NETWORK_NAME=${env.NETWORK_NAME}
+                            export VERSION=${env.PREVIOUS_VERSION}
                             docker-compose -f docker-compose.yml -f docker-compose.${DEPLOY_ENV}.yml down
                             docker-compose -f docker-compose.yml -f docker-compose.${DEPLOY_ENV}.yml up -d
                         """
                     } else {
                         bat """
                             set COMPOSE_PROJECT_NAME=final-project-${DEPLOY_ENV}
-                            set DOCKER_IMAGE=ikenna2025/final-project
-                            set NGINX_PORT=${DEPLOY_ENV == 'development' ? env.DEV_PORT : DEPLOY_ENV == 'staging' ? env.STAGING_PORT : env.PROD_PORT}
-                            set NETWORK_NAME=app-network
+                            set DOCKER_IMAGE=${DOCKER_IMAGE}
+                            set NGINX_PORT=${port}
+                            set NETWORK_NAME=${env.NETWORK_NAME}
+                            set VERSION=${env.PREVIOUS_VERSION}
                             docker-compose -f docker-compose.yml -f docker-compose.${DEPLOY_ENV}.yml down
                             docker-compose -f docker-compose.yml -f docker-compose.${DEPLOY_ENV}.yml up -d
                         """
