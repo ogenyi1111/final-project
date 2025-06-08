@@ -97,10 +97,13 @@ pipeline {
 
         stage('Checkout') {
             steps {
-                cleanWs()
-                git branch: 'main',
-                    url: "${GITHUB_REPO}",
-                    credentialsId: 'github-credentials'
+                script {
+                    if (isUnix()) {
+                        sh "git clone ${GITHUB_REPO} ."
+                    } else {
+                        bat "git clone ${GITHUB_REPO} ."
+                    }
+                }
             }
         }
 
