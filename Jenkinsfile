@@ -313,20 +313,44 @@ pipeline {
                 script {
                     echo "Deploying application version ${VERSION} to ${DEPLOY_ENV} environment..."
                     
-                    // Store current version for rollback
-                    def previousVersion = null
-                    if (fileExists('version_history.json')) {
-                        def versionHistory = readJSON file: 'version_history.json'
-                        previousVersion = versionHistory.currentVersion
-                        echo "Storing previous version: ${previousVersion}"
+                    // Check if port is available
+                    def port = DEPLOY_ENV == 'development' ? env.DEV_PORT : 
+                              DEPLOY_ENV == 'staging' ? env.STAGING_PORT : 
+                              env.PROD_PORT
+                    
+                    if (isUnix()) {
+                        def portCheck = sh(script: "netstat -tuln | grep ':${port}' || true", returnStdout: true).trim()
+                        if (portCheck) {
+                            error "Port ${port} is already in use. Please free up the port before deployment."
+                        }
+                    } else {
+                        def portCheck = bat(script: "netstat -ano | findstr :${port}", returnStdout: true).trim()
+                        if (portCheck) {
+                            error "Port ${port} is already in use. Please free up the port before deployment."
+                        }
                     }
+                    
+                    // Store current version for rollback
+                    def versionHistory = [:]
+                    if (fileExists(VERSION_HISTORY_FILE)) {
+                        try {
+                            versionHistory = readJSON file: VERSION_HISTORY_FILE
+                        } catch (Exception e) {
+                            echo "Error reading version history, creating new one"
+                            versionHistory = [:]
+                        }
+                    }
+                    
+                    // Store previous version before deployment
+                    env.PREVIOUS_VERSION = versionHistory.currentVersion ?: 'none'
+                    echo "Storing previous version: ${env.PREVIOUS_VERSION}"
                     
                     // Set environment-specific variables
                     if (isUnix()) {
                         sh """
                             export COMPOSE_PROJECT_NAME=final-project-${DEPLOY_ENV}
                             export DOCKER_IMAGE=ikenna2025/final-project
-                            export NGINX_PORT=${DEPLOY_ENV == 'development' ? '8082' : DEPLOY_ENV == 'staging' ? '8081' : '80'}
+                            export NGINX_PORT=${port}
                             export NETWORK_NAME=app-network
                             docker-compose -f docker-compose.yml -f docker-compose.${DEPLOY_ENV}.yml up -d
                         """
@@ -334,20 +358,18 @@ pipeline {
                         bat """
                             set COMPOSE_PROJECT_NAME=final-project-${DEPLOY_ENV}
                             set DOCKER_IMAGE=ikenna2025/final-project
-                            set NGINX_PORT=${DEPLOY_ENV == 'development' ? '8082' : DEPLOY_ENV == 'staging' ? '8081' : '80'}
+                            set NGINX_PORT=${port}
                             set NETWORK_NAME=app-network
                             docker-compose -f docker-compose.yml -f docker-compose.${DEPLOY_ENV}.yml up -d
                         """
                     }
                     
                     // Update version history
-                    def versionHistory = [
-                        currentVersion: VERSION,
-                        previousVersion: previousVersion,
-                        lastDeployed: new Date().format("yyyy-MM-dd'T'HH:mm:ss'Z'"),
-                        environment: DEPLOY_ENV
-                    ]
-                    writeJSON file: 'version_history.json', json: versionHistory
+                    versionHistory.currentVersion = VERSION
+                    versionHistory.previousVersion = env.PREVIOUS_VERSION
+                    versionHistory.lastDeployed = new Date().format("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                    versionHistory.environment = DEPLOY_ENV
+                    writeJSON file: VERSION_HISTORY_FILE, json: versionHistory
                 }
             }
         }
@@ -359,40 +381,70 @@ pipeline {
         }
         success {
             script {
-                slackSend(
-                    channel: env.SLACK_CHANNEL,
-                    color: 'good',
-                    message: """
-                        :white_check_mark: Pipeline Succeeded
-                        *Build:* ${env.JOB_NAME} #${env.BUILD_NUMBER}
-                        *Version:* 1.0.0-${env.BUILD_NUMBER}
-                        *Environment:* Production
-                        *Changes:* ${currentBuild.changeSets}
-                        *Build URL:* ${env.BUILD_URL}
-                    """
-                )
+                try {
+                    withCredentials([string(credentialsId: 'slack-token2', variable: 'SLACK_TOKEN')]) {
+                        slackSend(
+                            channel: env.SLACK_CHANNEL,
+                            color: 'good',
+                            message: """
+                                :white_check_mark: Pipeline Succeeded
+                                *Build:* ${env.JOB_NAME} #${env.BUILD_NUMBER}
+                                *Version:* ${VERSION}
+                                *Environment:* ${DEPLOY_ENV}
+                                *Changes:* ${currentBuild.changeSets}
+                                *Build URL:* ${env.BUILD_URL}
+                            """
+                        )
+                    }
+                } catch (Exception e) {
+                    echo "Failed to send Slack notification: ${e.message}"
+                }
             }
         }
         failure {
             script {
-                slackSend(
-                    channel: env.SLACK_CHANNEL,
-                    color: 'danger',
-                    message: """
-                        :x: Pipeline Failed
-                        *Build:* ${env.JOB_NAME} #${env.BUILD_NUMBER}
-                        *Version:* 1.0.0-${env.BUILD_NUMBER}
-                        *Environment:* Production
-                        *Error:* ${currentBuild.description ?: 'No error description available'}
-                        *Build URL:* ${env.BUILD_URL}
-                    """
-                )
+                try {
+                    withCredentials([string(credentialsId: 'slack-token2', variable: 'SLACK_TOKEN')]) {
+                        slackSend(
+                            channel: env.SLACK_CHANNEL,
+                            color: 'danger',
+                            message: """
+                                :x: Pipeline Failed
+                                *Build:* ${env.JOB_NAME} #${env.BUILD_NUMBER}
+                                *Version:* ${VERSION}
+                                *Environment:* ${DEPLOY_ENV}
+                                *Error:* ${currentBuild.description ?: 'No error description available'}
+                                *Build URL:* ${env.BUILD_URL}
+                            """
+                        )
+                    }
+                } catch (Exception e) {
+                    echo "Failed to send Slack notification: ${e.message}"
+                }
                 
                 // Attempt rollback if deployment failed
                 echo "Deployment failed! Initiating rollback..."
-                if (previousVersion) {
-                    echo "Rolling back to version: ${previousVersion}"
-                    // Add rollback logic here
+                if (env.PREVIOUS_VERSION && env.PREVIOUS_VERSION != 'none') {
+                    echo "Rolling back to version: ${env.PREVIOUS_VERSION}"
+                    if (isUnix()) {
+                        sh """
+                            export COMPOSE_PROJECT_NAME=final-project-${DEPLOY_ENV}
+                            export DOCKER_IMAGE=ikenna2025/final-project
+                            export NGINX_PORT=${DEPLOY_ENV == 'development' ? env.DEV_PORT : DEPLOY_ENV == 'staging' ? env.STAGING_PORT : env.PROD_PORT}
+                            export NETWORK_NAME=app-network
+                            docker-compose -f docker-compose.yml -f docker-compose.${DEPLOY_ENV}.yml down
+                            docker-compose -f docker-compose.yml -f docker-compose.${DEPLOY_ENV}.yml up -d
+                        """
+                    } else {
+                        bat """
+                            set COMPOSE_PROJECT_NAME=final-project-${DEPLOY_ENV}
+                            set DOCKER_IMAGE=ikenna2025/final-project
+                            set NGINX_PORT=${DEPLOY_ENV == 'development' ? env.DEV_PORT : DEPLOY_ENV == 'staging' ? env.STAGING_PORT : env.PROD_PORT}
+                            set NETWORK_NAME=app-network
+                            docker-compose -f docker-compose.yml -f docker-compose.${DEPLOY_ENV}.yml down
+                            docker-compose -f docker-compose.yml -f docker-compose.${DEPLOY_ENV}.yml up -d
+                        """
+                    }
                 } else {
                     echo "No previous version available for rollback"
                 }
@@ -400,17 +452,23 @@ pipeline {
         }
         unstable {
             script {
-                slackSend(
-                    channel: env.SLACK_CHANNEL,
-                    color: 'warning',
-                    message: """
-                        :warning: Pipeline Unstable
-                        *Build:* ${env.JOB_NAME} #${env.BUILD_NUMBER}
-                        *Version:* 1.0.0-${env.BUILD_NUMBER}
-                        *Environment:* Production
-                        *Build URL:* ${env.BUILD_URL}
-                    """
-                )
+                try {
+                    withCredentials([string(credentialsId: 'slack-token2', variable: 'SLACK_TOKEN')]) {
+                        slackSend(
+                            channel: env.SLACK_CHANNEL,
+                            color: 'warning',
+                            message: """
+                                :warning: Pipeline Unstable
+                                *Build:* ${env.JOB_NAME} #${env.BUILD_NUMBER}
+                                *Version:* ${VERSION}
+                                *Environment:* ${DEPLOY_ENV}
+                                *Build URL:* ${env.BUILD_URL}
+                            """
+                        )
+                    }
+                } catch (Exception e) {
+                    echo "Failed to send Slack notification: ${e.message}"
+                }
             }
         }
     }
