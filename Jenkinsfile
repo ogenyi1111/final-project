@@ -357,77 +357,60 @@ pipeline {
         always {
             cleanWs()
         }
+        success {
+            script {
+                slackSend(
+                    channel: env.SLACK_CHANNEL,
+                    color: 'good',
+                    message: """
+                        :white_check_mark: Pipeline Succeeded
+                        *Build:* ${env.JOB_NAME} #${env.BUILD_NUMBER}
+                        *Version:* 1.0.0-${env.BUILD_NUMBER}
+                        *Environment:* Production
+                        *Changes:* ${currentBuild.changeSets}
+                        *Build URL:* ${env.BUILD_URL}
+                    """
+                )
+            }
+        }
         failure {
             script {
+                slackSend(
+                    channel: env.SLACK_CHANNEL,
+                    color: 'danger',
+                    message: """
+                        :x: Pipeline Failed
+                        *Build:* ${env.JOB_NAME} #${env.BUILD_NUMBER}
+                        *Version:* 1.0.0-${env.BUILD_NUMBER}
+                        *Environment:* Production
+                        *Error:* ${currentBuild.description ?: 'No error description available'}
+                        *Build URL:* ${env.BUILD_URL}
+                    """
+                )
+                
+                // Attempt rollback if deployment failed
                 echo "Deployment failed! Initiating rollback..."
-                if (env.PREVIOUS_TAG != 'none') {
-                    echo "Rolling back to version ${env.PREVIOUS_TAG}"
+                if (previousVersion) {
+                    echo "Rolling back to version: ${previousVersion}"
                     // Add rollback logic here
                 } else {
                     echo "No previous version available for rollback"
                 }
             }
         }
-        success {
-            script {
-                if (currentBuild.currentResult == 'SUCCESS') {
-                    slackSend(
-                        channel: env.SLACK_CHANNEL,
-                        color: 'good',
-                        message: """
-                            :white_check_mark: Pipeline Succeeded
-                            *Build:* ${env.JOB_NAME} #${env.BUILD_NUMBER}
-                            *Version:* ${VERSION}
-                            *Environment:* ${DEPLOY_ENV}
-                            *Changes:* ${currentBuild.changeSets}
-                            *Build URL:* ${env.BUILD_URL}
-                        """
-                    )
-                }
-            }
-        }
-        failure {
-            script {
-                if (currentBuild.currentResult == 'FAILURE') {
-                    slackSend(
-                        channel: env.SLACK_CHANNEL,
-                        color: 'danger',
-                        message: """
-                            :x: Pipeline Failed
-                            *Build:* ${env.JOB_NAME} #${env.BUILD_NUMBER}
-                            *Version:* ${VERSION}
-                            *Environment:* ${DEPLOY_ENV}
-                            *Error:* ${currentBuild.description ?: 'No error description available'}
-                            *Build URL:* ${env.BUILD_URL}
-                        """
-                    )
-                    
-                    // Attempt rollback if deployment failed
-                    echo "Deployment failed! Initiating rollback..."
-                    if (previousVersion) {
-                        echo "Rolling back to version: ${previousVersion}"
-                        // Add rollback logic here
-                    } else {
-                        echo "No previous version available for rollback"
-                    }
-                }
-            }
-        }
         unstable {
             script {
-                if (currentBuild.currentResult == 'UNSTABLE') {
-                    slackSend(
-                        channel: env.SLACK_CHANNEL,
-                        color: 'warning',
-                        message: """
-                            :warning: Pipeline Unstable
-                            *Build:* ${env.JOB_NAME} #${env.BUILD_NUMBER}
-                            *Version:* ${VERSION}
-                            *Environment:* ${DEPLOY_ENV}
-                            *Build URL:* ${env.BUILD_URL}
-                        """
-                    )
-                }
+                slackSend(
+                    channel: env.SLACK_CHANNEL,
+                    color: 'warning',
+                    message: """
+                        :warning: Pipeline Unstable
+                        *Build:* ${env.JOB_NAME} #${env.BUILD_NUMBER}
+                        *Version:* 1.0.0-${env.BUILD_NUMBER}
+                        *Environment:* Production
+                        *Build URL:* ${env.BUILD_URL}
+                    """
+                )
             }
         }
     }
